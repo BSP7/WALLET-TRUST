@@ -1,0 +1,158 @@
+# ================================================================================
+# CRITICAL SECURITY: ENVIRONMENT & SECRETS
+# ================================================================================
+# NEVER commit .env files with actual secrets
+.env
+.env.local
+.env.*.local
+.env.production
+.env.production.local
+.env.staging.local
+.env.development.local
+env_backup.txt
+
+# AWS credentials and profiles
+.aws/credentials
+.aws/config
+
+# Keys and secrets
+keys/
+private_keys/
+secrets/
+*.key
+*.pem
+*.priv
+
+# ================================================================================
+# PYTHON (Backend)
+# ================================================================================
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+.virtualenv
+__pyenv__/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# ================================================================================
+# NODE.JS / FRONTEND
+# ================================================================================
+node_modules/
+npm-debug.log
+yarn-error.log
+.pnpm-debug.log
+pnpm-debug.log
+
+# Build output
+dist/
+.next/
+out/
+.nuxt/
+
+# ================================================================================
+# IDE & EDITOR
+# ================================================================================
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+.vim/
+.emacs
+.atom/
+
+# ================================================================================
+# OPERATING SYSTEM
+# ================================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+._*
+.Spotlight-V100
+.Trashes
+
+# ================================================================================
+# BLOCKCHAIN & ETHEREUM
+# ================================================================================
+# Hardhat cache (but keep artifacts per original comment)
+cache/
+solidify-files-cache.json
+
+# Typechain
+typechain/
+typechain-types/
+
+# Hardhat coverage
+coverage/
+coverage.json
+
+# Hardhat local deployments
+ignition/deployments/chain-31337/
+
+# .env files in blockchain directory
+blockchain/.env
+blockchain/.env.local
+
+# ================================================================================
+# BUILD & LOGS
+# ================================================================================
+logs/
+*.log
+*.log.*
+log.txt
+backend/logs/*
+!backend/logs/.gitkeep
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swp
+
+# ================================================================================
+# DATA & STORAGE
+# ================================================================================
+*.db
+*.sqlite
+*.sqlite3
+data/
+backend/storage/*
+!backend/storage/.gitkeep
+storage/
+
+# ================================================================================
+# MISC
+# ================================================================================
+.DS_Store
+*.bak
+*.backup
+*~
+.directorynode_modules
