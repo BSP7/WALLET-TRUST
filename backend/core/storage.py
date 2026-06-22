@@ -77,21 +77,34 @@ class FilebaseStorage:
             logger.error(f"Upload error: {str(e)}")
             return False, "", str(e)
     
-    def upload_bytes(self, file_data: bytes, object_key: str, content_type: str = 'application/octet-stream') -> Tuple[bool, str, Optional[str]]:
-        """Upload bytes to Filebase"""
+    def upload_bytes(self, file_data: bytes, object_key: str, content_type: str = 'application/octet-stream') -> Tuple[bool, str, Optional[str], Optional[str]]:
+        """Upload bytes to Filebase and return (success, object_key, file_url, cid)"""
         try:
-            self.client.put_object(Bucket=self.bucket, Key=object_key, Body=file_data, ContentType=content_type)
+            response = self.client.put_object(Bucket=self.bucket, Key=object_key, Body=file_data, ContentType=content_type)
             file_url = f"{self.endpoint_url}/{self.bucket}/{object_key}"
             logger.info(f"Bytes uploaded: {file_url}")
-            return True, object_key, file_url
+            
+            # Fetch CID from head_object since Filebase provides it there
+            cid = None
+            try:
+                head = self.client.head_object(Bucket=self.bucket, Key=object_key)
+                # Filebase returns IPFS CID in x-amz-meta-cid header
+                cid = head.get('Metadata', {}).get('cid')
+                if not cid and 'ETag' in response:
+                    # Sometimes ETag is the CID on IPFS-backed S3
+                    cid = response['ETag'].strip('"')
+            except Exception as cid_e:
+                logger.warning(f"Failed to fetch CID for {object_key}: {cid_e}")
+                
+            return True, object_key, file_url, cid
         
         except ClientError as e:
             error_code = e.response['Error']['Code']
             logger.error(f"Upload failed: {error_code}")
-            return False, "", f"S3 Error ({error_code})"
+            return False, "", f"S3 Error ({error_code})", None
         except Exception as e:
             logger.error(f"Upload error: {str(e)}")
-            return False, "", str(e)
+            return False, "", str(e), None
     
     def download_file(self, object_key: str, output_path: str) -> Tuple[bool, str]:
         """Download file from Filebase"""

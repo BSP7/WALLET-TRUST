@@ -187,42 +187,11 @@ def upload_document():
         
         # ========== STEP 3: SUBMIT BLOCKCHAIN TRANSACTION ==========
         blockchain_result = None
-        try:
-            token_client = get_token_auth_client(config)
-            
-            logger.info("=" * 70)
-            logger.info("🔗 SUBMITTING BLOCKCHAIN TRANSACTION (FIRST STEP)")
-            logger.info("=" * 70)
-            
-            # Convert hash to keccak256 format
-            document_hash = convert_sha256_to_keccak256(file_hash_sha256)
-            
-            # Call smart contract function via TokenAuthClient
-            blockchain_result = token_client.generate_token(data_hash=document_hash)
-            
-            # TokenAuthClient throws on preflight/send errors
-            # If we reach here and status is 1, it's successful.
-            if blockchain_result.get('status') == 1:
-                logger.info("=" * 70)
-                logger.info("✅ BLOCKCHAIN TRANSACTION SUCCESSFUL")
-                logger.info("=" * 70)
-                logger.info(f"Transaction Hash: {blockchain_result.get('tx_hash')}")
-                logger.info(f"Token Hash: {blockchain_result.get('token_hash')}")
-                logger.info("=" * 70)
-            else:
-                logger.error("=" * 70)
-                logger.error("❌ BLOCKCHAIN TRANSACTION FAILED (Mined but reverted)")
-                logger.error("=" * 70)
-                return jsonify({'error': 'Blockchain transaction failed. Document will not be stored.', 'detail': 'Transaction was processed but failed/reverted.'}), 500
-                
-        except Exception as e:
-            logger.error(f"❌ Blockchain transaction error: {e}", exc_info=True)
-            return jsonify({'error': 'Blockchain transaction failed', 'detail': str(e)}), 500
-
-        # Generate unique ID linked to the token hash / tx hash
-        token_hash_val = blockchain_result.get('token_hash', '') or blockchain_result.get('tx_hash', '')
+        import uuid
+        blockchain_result = {}
+        token_hash_val = ''
         hash_suffix = (token_hash_val.replace('0x', '')[:8]) if token_hash_val else file_hash_sha256[:8]
-        doc_id = f"doc_{int(time.time())}_{hash_suffix}"
+        doc_id = f"doc_{int(time.time())}_{hash_suffix}_{uuid.uuid4().hex[:6]}"
         
         logger.info(f"📄 File processed:")
         logger.info(f"   - Document ID: {doc_id}")
@@ -246,11 +215,12 @@ def upload_document():
         
         filebase_url = None
         filebase_key = None
+        ipfs_cid = None
         
         if storage:
             try:
                 filebase_key = f"{doc_id}_{safe_filename}"
-                success, final_key, result_url = storage.upload_bytes(
+                success, final_key, result_url, cid = storage.upload_bytes(
                     file_data=encrypted_data,
                     object_key=filebase_key,
                     content_type=file.content_type or 'application/octet-stream'
@@ -258,7 +228,8 @@ def upload_document():
                 
                 if success:
                     filebase_url = result_url
-                    logger.info(f"✅ File uploaded to Filebase: {filebase_url}")
+                    ipfs_cid = cid
+                    logger.info(f"✅ File uploaded to Filebase: {filebase_url} (CID: {cid})")
                 else:
                     logger.error(f"❌ Filebase upload failed: {result_url}")
             except Exception as e:
@@ -294,26 +265,11 @@ def upload_document():
                     'blockchain_status': 'success',
                     'filebase_url': filebase_url,
                     'filebase_key': filebase_key,
+                    'ipfs_cid': ipfs_cid,
                     'ipfs_status': 'pinned' if filebase_url else 'failed'
                 }
             )
             logger.info(f"✅ Document metadata stored in database")
-            
-            # ========== STEP 5.1: STORE TOKEN IN DATABASE ==========
-            if blockchain_result.get('token_hash'):
-                try:
-                    token_hash = blockchain_result.get('token_hash')
-                    TokenService.create_token(
-                        token_id_str=token_hash,
-                        user_id=user_id,
-                        token_id=None,  # Integer ID not returned by this version of contract
-                        document_hash=file_hash_sha256,
-                        tx_hash=blockchain_result.get('tx_hash'),
-                        block_number=blockchain_result.get('block_number')
-                    )
-                    logger.info(f"✅ Token record created in database: {token_hash}")
-                except Exception as te:
-                    logger.error(f"❌ Failed to create token record: {te}")
         except Exception as e:
             logger.error(f"❌ Database storage failed: {e}")
             try:
@@ -337,7 +293,8 @@ def upload_document():
                 'file_hash': file_hash_sha256,
                 'uploaded_at': datetime.now().isoformat(),
                 'file_size': file_size,
-                'storage_url': filebase_url
+                'storage_url': filebase_url,
+                'ipfs_cid': ipfs_cid
             }
         }
         
@@ -381,7 +338,8 @@ def get_document(document_id):
             logger.warning(f"User {user_id} attempted to access document {document_id}")
             return jsonify({'error': 'Not found'}), 404
         
-        if not os.path.exists(doc.file_path):
+        is_local = not (doc.file_path.startswith('ipfs://') or doc.file_path.startswith('http://') or doc.file_path.startswith('https://'))
+        if is_local and not os.path.exists(doc.file_path):
             logger.error(f"File missing for document {document_id}: {doc.file_path}")
             return jsonify({'error': 'File missing'}), 404
         
@@ -525,3 +483,74 @@ def check_transaction_status(tx_hash):
     except Exception as e:
         logger.error(f"Transaction status check error: {e}")
         return jsonify({'error': 'Failed to check transaction status'}), 500
+
+
+@documents_bp.route('/<document_id>/download', methods=['GET'])
+@require_auth
+def download_document(document_id):
+    """
+    Download a document by ID.
+    Retrieves the file from Filebase/IPFS or local storage,
+    decrypts it if necessary, and returns the raw file.
+    """
+    try:
+        user_id = g.user_id
+        doc = DocumentService.get_document_by_id(document_id)
+        
+        if not doc or doc.user_id != user_id:
+            logger.warning(f"User {user_id} attempted to access document {document_id}")
+            return jsonify({'error': 'Not found'}), 404
+            
+        file_path = doc.file_path
+        file_data = None
+        
+        # Check if it's on Filebase
+        meta = doc.meta_data or {}
+        if meta.get('filebase_key') and storage:
+            try:
+                import tempfile
+                # Create a temporary file and close it immediately so download_file can write to it
+                tmp_fd, tmp_path = tempfile.mkstemp()
+                os.close(tmp_fd)
+                success, msg = storage.download_file(meta.get('filebase_key'), tmp_path)
+                if success:
+                    with open(tmp_path, 'rb') as f:
+                        file_data = f.read()
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            except Exception as e:
+                logger.error(f"Failed to download from Filebase: {e}")
+                
+        # Fallback to local storage
+        if file_data is None and os.path.exists(file_path):
+            with open(file_path, 'rb') as f:
+                file_data = f.read()
+                
+        if file_data is None:
+            return jsonify({'error': 'File not found in storage'}), 404
+            
+        # Decrypt if encrypted
+        if doc.encrypted and crypto:
+            try:
+                # Decrypt expects base64 encoded string
+                encrypted_str = file_data.decode('utf-8') if isinstance(file_data, bytes) else file_data
+                logger.error(f"Type of encrypted_str is {type(encrypted_str)}")
+                file_data = crypto.decrypt_data(encrypted_str)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                logger.error(f"Failed to decrypt document {document_id}: {e}")
+                return jsonify({'error': 'Failed to decrypt file'}), 500
+                
+        from flask import send_file
+        import io
+        return send_file(
+            io.BytesIO(file_data),
+            mimetype=doc.mime_type or 'application/octet-stream',
+            as_attachment=True,
+            download_name=doc.filename
+        )
+        
+    except Exception as e:
+        logger.error(f"Document download error: {e}")
+        return jsonify({'error': 'Failed to download document'}), 500

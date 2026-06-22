@@ -3,6 +3,7 @@
 # ================================================================================
 # NEVER commit .env files with actual secrets
 .env
+.env.*
 .env.local
 .env.*.local
 .env.production
@@ -31,6 +32,7 @@ venv/
 env/
 .venv/
 ENV/
+Docs/
 .virtualenv
 __pyenv__/
 
@@ -143,6 +145,8 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+*.sqlite-journal
+*.db-journal
 data/
 backend/storage/*
 !backend/storage/.gitkeep

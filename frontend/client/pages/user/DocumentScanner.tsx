@@ -116,31 +116,48 @@ export default function DocumentScanner() {
 
       const authToken = localStorage.getItem("access_token");
 
-      const response = await fetch("/api/documents/upload", {
-        method: "POST",
-        headers: {
-          ...(authToken && { Authorization: `Bearer ${authToken}` }),
-        },
-        body: formData,
-      });
-
-      setUploadProgress(100);
-
-      if (!response.ok) {
-        let errorMessage = "Upload failed";
-
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          const text = await response.text();
-          if (text) errorMessage = text;
+      const response = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/documents/upload", true);
+        
+        if (authToken) {
+          xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
         }
 
-        throw new Error(errorMessage);
-      }
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const progress = Math.round((event.loaded / event.total) * 100);
+            setUploadProgress(progress);
+          }
+        };
 
-      const data = await response.json();
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch (e) {
+              resolve(xhr.responseText);
+            }
+          } else {
+            let errorMessage = "Upload failed";
+            try {
+              const errorData = JSON.parse(xhr.responseText);
+              errorMessage = errorData.error || errorMessage;
+            } catch {
+              if (xhr.responseText) errorMessage = xhr.responseText;
+            }
+            reject(new Error(errorMessage));
+          }
+        };
+
+        xhr.onerror = () => {
+          reject(new Error("Network error during upload"));
+        };
+
+        xhr.send(formData);
+      });
+
+      const data = response as any;
       const txHash = data.blockchain?.transaction_hash;
 
       toast({

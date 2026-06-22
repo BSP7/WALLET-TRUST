@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft, Download, Filter, ShieldCheck, XCircle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,58 +21,36 @@ interface Validation {
 export default function ValidationHistory() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
-  const [validations] = useState<Validation[]>([
-    {
-      id: "1",
-      token: "AB12CD34",
-      userName: "John Doe",
-      timestamp: "2024-02-28 14:30",
-      status: "success",
-      documentHash: "0x1a2...b3c4",
-      documentType: "Driver's License",
-    },
-    {
-      id: "2",
-      token: "EF56GH78",
-      userName: "Jane Smith",
-      timestamp: "2024-02-27 10:15",
-      status: "pending",
-      documentHash: "0x5d6...e7f8",
-      documentType: "Passport",
-    },
-    {
-      id: "3",
-      token: "QW45RT67",
-      userName: "Invalid User",
-      timestamp: "2024-02-27 12:00",
-      status: "failed",
-    },
-    {
-      id: "4",
-      token: "ZX98YV12",
-      userName: "Alice Johnson",
-      timestamp: "2024-02-26 16:45",
-      status: "success",
-      documentHash: "0x3f9...c2a8",
-      documentType: "National ID",
-    },
-    {
-      id: "5",
-      token: "MN34KL56",
-      userName: "Bob Williams",
-      timestamp: "2024-02-26 11:20",
-      status: "pending",
-      documentHash: "0x7e2...d5b3",
-      documentType: "Passport",
-    },
-    {
-      id: "6",
-      token: "PO78IU90",
-      userName: "Unknown",
-      timestamp: "2024-02-25 09:10",
-      status: "failed",
-    },
-  ]);
+  const [validations, setValidations] = useState<Validation[]>([]);
+
+  useEffect(() => {
+    const fetchValidations = async () => {
+      try {
+        const token = localStorage.getItem("access_token");
+        if (!token) return;
+        const res = await fetch("/api/company/validations", {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const mapped = data.validations.map((v: any) => ({
+            id: v.id,
+            token: v.token,
+            userName: v.user_address || "User",
+            timestamp: new Date(v.timestamp * 1000).toLocaleString(),
+            status: v.is_valid ? "success" : "failed",
+            documentHash: v.tx_hash,
+            documentType: "Blockchain Token",
+          }));
+          mapped.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setValidations(mapped);
+        }
+      } catch (err) {
+        console.error("Error fetching validations:", err);
+      }
+    };
+    fetchValidations();
+  }, []);
 
   const filteredValidations = validations.filter((validation) => {
     const matchesSearch =

@@ -132,6 +132,7 @@ class CryptoManager:
             Decrypted data (bytes)
         """
         try:
+            logger.error(f"Type of encrypted_data in decrypt_data is {type(encrypted_data)}")
             # Decode from base64
             encrypted = base64.b64decode(encrypted_data.encode('utf-8'))
             
