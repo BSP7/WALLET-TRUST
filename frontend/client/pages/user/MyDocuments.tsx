@@ -112,6 +112,44 @@ export default function MyDocuments() {
     setDocuments(documents.filter(d => d.id !== docId));
   };
 
+  const handleDownload = async (docId: string, docName: string, viewOnly: boolean = false) => {
+    try {
+      const accessToken = localStorage.getItem("access_token");
+      const response = await fetch(`/api/documents/${docId}/download`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to download document");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      
+      if (viewOnly) {
+        window.open(url, '_blank');
+      } else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = docName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+      
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Download Failed",
+        description: "Could not retrieve the document.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <Navbar />
@@ -263,11 +301,21 @@ export default function MyDocuments() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Button variant="outline" size="sm" className="flex items-center gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex items-center gap-2"
+                            onClick={() => handleDownload(doc.id, doc.name, true)}
+                          >
                             <Eye className="w-4 h-4" />
                             View
                           </Button>
-                          <Button variant="outline" size="sm" className="flex items-center gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex items-center gap-2"
+                            onClick={() => handleDownload(doc.id, doc.name, false)}
+                          >
                             <Download className="w-4 h-4" />
                           </Button>
                           <Button

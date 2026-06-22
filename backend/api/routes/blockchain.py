@@ -305,6 +305,7 @@ def generate_token():
         try:
             token_client = get_token_auth_client(config)
         except Exception as e:
+            print("EXCEPTION in get_token_auth_client:", repr(e))
             logger.error(f"TokenAuth client init failed: {e}")
             return jsonify({
                 'success': False,
@@ -375,20 +376,10 @@ def generate_token():
 
 
 @blockchain_bp.route('/token/verify', methods=['POST'])
+@require_auth
 def verify_token():
     """
-    Verify a token on the blockchain.
-    
-    Request body:
-    {
-        "token": "token_hash" or token ID
-    }
-    
-    Returns:
-        - 200: Token verification result with details
-        - 400: Validation error
-        - 503: Blockchain connection failed
-        - 500: Verification error
+    Verify a token on the blockchain and log the validation attempt.
     """
     try:
         data = request.get_json()
@@ -403,56 +394,31 @@ def verify_token():
                 'details': e.errors()
             }), 400
         
+        company_id = g.user_id
+        
         # Get Web3Manager
         w3_manager = get_web3_manager(config)
-        if w3_manager is None:
-            logger.error("Blockchain not configured")
-            return jsonify({
-                'error': 'Blockchain service unavailable',
-                'details': 'Configuration missing'
-            }), 503
-        
-        if not w3_manager.connected:
-            logger.error("Blockchain connection failed")
+        if w3_manager is None or not w3_manager.connected:
             return jsonify({
                 'error': 'Blockchain service unavailable'
             }), 503
         
-        logger.info(f"Token verification request: {req.token[:20] if len(req.token) > 20 else req.token}...")
-        
         token_to_verify = (req.token or '').strip()
         
-        # If it's not a full bytes32 hash, try looking it up in the database
         if not (token_to_verify.startswith('0x') and len(token_to_verify) == 66):
-            # Try to find by ID (e.g. tok_1740...)
+            # Attempt to resolve from DB
             db_token = TokenService.get_token_by_id(token_to_verify)
-            
-            # If not found by ID, try case-insensitive or common prefixes
             if not db_token:
-                # Try finding by prefix of tx_hash or ID
                 from models import Token
                 db_token = Token.query.filter(
                     (Token.id.ilike(f"{token_to_verify}%")) | 
                     (Token.tx_hash.ilike(f"0x{token_to_verify}%")) |
                     (Token.tx_hash.ilike(f"{token_to_verify}%"))
                 ).first()
-            
-            if db_token and db_token.id:
-                # The 'id' in our DB is often the tokenHash if we stored it as such,
-                # or it contains the tokenHash in the string.
-                # Let's check if we have the actual hex hash.
-                if db_token.id.startswith('0x') and len(db_token.id) == 66:
-                    token_to_verify = db_token.id
-                elif db_token.tx_hash and db_token.tx_hash.startswith('0x'):
-                    # We might need to get the actual tokenHash from the transaction/contract
-                    # but for now, let's see if we can extract it or if we stored it elsewhere.
-                    # If we only have tx_hash, we might need a different approach.
-                    pass
-
-        # Final check: if we still don't have a valid hex, we can't verify on-chain directly
-        # but we can return the DB info if found.
+            if db_token and db_token.id and db_token.id.startswith('0x') and len(db_token.id) == 66:
+                token_to_verify = db_token.id
+                
         if not (token_to_verify.startswith('0x') and len(token_to_verify) == 66):
-             # Try to see if the token ID string contains a hex hash
              match = re.search(r'0x[a-fA-F0-9]{64}', token_to_verify)
              if match:
                  token_to_verify = match.group(0)
@@ -460,28 +426,47 @@ def verify_token():
         if not (token_to_verify.startswith('0x') and len(token_to_verify) == 66):
             return jsonify({
                 'valid': False,
-                'error': 'Could not resolve token to a valid blockchain hash. Please provide the full 0x hash.',
+                'error': 'Could not resolve token to a valid blockchain hash.',
                 'token': req.token
             }), 400
 
         try:
             token_client = get_token_auth_client(config)
             info = token_client.verify_token_hash(token_to_verify)
+            is_valid = bool(info.get('is_valid'))
+            
+            # Log validation to database
+            import time
+            import uuid
+            from db_service import ValidationService
+            val_id = f"val_{int(time.time())}_{token_to_verify[-8:]}_{uuid.uuid4().hex[:6]}"
+            
+            # Find original token's tx_hash if possible
+            db_token = TokenService.get_token_by_id(token_to_verify)
+            tx_hash = db_token.tx_hash if db_token else None
+            
+            ValidationService.create_validation(
+                validation_id=val_id,
+                company_id=company_id,
+                token=token_to_verify,
+                is_valid=is_valid,
+                tx_hash=tx_hash
+            )
+            
+            return jsonify({
+                'valid': is_valid,
+                'token_id': None,
+                'token_hash': token_to_verify,
+                'user_address': info.get('generator'),
+                'created_at': info.get('generated_at'),
+                'data_hash': info.get('data_hash'),
+            }), 200
         except Exception as e:
             return jsonify({
                 'valid': False,
                 'error': f"On-chain verification failed: {str(e)[:200]}",
                 'token_hash': token_to_verify,
             }), 500
-
-        return jsonify({
-            'valid': bool(info.get('is_valid')),
-            'token_id': None,
-            'token_hash': token,
-            'user_address': info.get('generator'),
-            'created_at': info.get('generated_at'),
-            'data_hash': info.get('data_hash'),
-        }), 200
         
     except Exception as e:
         logger.error(f"Token verification error: {e}", exc_info=True)

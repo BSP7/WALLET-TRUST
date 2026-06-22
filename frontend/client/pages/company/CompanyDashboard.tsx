@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Building2, Search, ShieldCheck, Clock, XCircle, TrendingUp, Users, FileCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,42 +25,91 @@ export default function CompanyDashboard() {
   const [isValidating, setIsValidating] = useState(false);
   const [validations, setValidations] = useState<Validation[]>([]);
 
-  const handleValidateToken = (e: React.FormEvent) => {
+  // Fetch validation history on mount
+  useEffect(() => {
+    const fetchValidations = async () => {
+      try {
+        const token = localStorage.getItem("access_token");
+        if (!token) return;
+        const res = await fetch("/api/company/validations", {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const mapped = data.validations.map((v: any) => ({
+            id: v.id,
+            token: v.token,
+            userName: v.user_address || "User (Address)", // Assuming we might only have address from contract
+            timestamp: new Date(v.timestamp * 1000).toLocaleString(),
+            status: v.is_valid ? "success" : "failed",
+            documentHash: v.tx_hash,
+          }));
+          // Sort newest first
+          mapped.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setValidations(mapped);
+        }
+      } catch (err) {
+        console.error("Error fetching validations:", err);
+      }
+    };
+    fetchValidations();
+  }, []);
+
+  const handleValidateToken = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tokenInput) return;
 
     setIsValidating(true);
 
-    setTimeout(() => {
-      const isValid = Math.random() > 0.3;
+    try {
+      const accessToken = localStorage.getItem("access_token");
+      const response = await fetch("/api/blockchain/token/verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ token: tokenInput }),
+      });
+
+      const data = await response.json();
+      const isValid = data.valid === true;
+
       const newValidation: Validation = {
         id: Date.now().toString(),
         token: tokenInput,
-        userName: isValid ? "User " + Math.floor(Math.random() * 1000) : "Unknown",
+        userName: data.user_address || "Unknown",
         timestamp: new Date().toLocaleString(),
         status: isValid ? "success" : "failed",
-        documentHash: isValid ? "0x" + Math.random().toString(16).substring(2, 12) : undefined,
+        documentHash: data.data_hash || data.token_hash,
       };
 
-      setValidations([newValidation, ...validations]);
-      setIsValidating(false);
+      setValidations((prev) => [newValidation, ...prev]);
       setTokenInput("");
 
       toast({
         title: isValid ? "Token Valid" : "Token Invalid",
         description: isValid
           ? "Identity verified successfully on blockchain."
-          : "Token not found or expired.",
+          : (data.error || "Token not found or invalid."),
         variant: isValid ? "default" : "destructive",
       });
-    }, 1000);
+    } catch (error: any) {
+      toast({
+        title: "Verification Error",
+        description: error.message || "Failed to connect to verification service.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsValidating(false);
+    }
   };
 
   const stats = {
     total: validations.length,
     success: validations.filter((v) => v.status === "success").length,
     failed: validations.filter((v) => v.status === "failed").length,
-    today: validations.filter((v) => v.timestamp.includes("2024-02-27")).length,
+    today: validations.filter((v) => new Date(v.timestamp).toDateString() === new Date().toDateString()).length,
   };
 
   const getStatusBadge = (status: string) => {

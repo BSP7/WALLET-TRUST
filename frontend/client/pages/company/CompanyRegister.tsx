@@ -59,19 +59,41 @@ export default function CompanyRegister() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      const response = await fetch("/api/company/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company_name: formData.companyName,
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Registration failed");
+      }
+
       toast({
         title: "Registration Successful",
-        description: "Your company has been registered. Please check your email for verification.",
+        description: "Your company has been registered. Please log in.",
       });
       navigate("/company/login");
-    }, 1500);
+    } catch (error: any) {
+      toast({
+        title: "Registration Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

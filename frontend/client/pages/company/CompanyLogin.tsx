@@ -46,20 +46,40 @@ export default function CompanyLogin() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-      // Store company info
-      localStorage.setItem("companyUser", JSON.stringify({
-        email: formData.email,
-        companyName: formData.email.split("@")[1].split(".")[0].toUpperCase(),
-      }));
+    try {
+      const response = await fetch("/api/company/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Login failed");
+      }
+
+      localStorage.setItem("access_token", data.access_token);
+      localStorage.setItem("companyUser", JSON.stringify(data.company));
+      
+      toast({
+        title: "Login Successful",
+        description: "Welcome to your company dashboard.",
+      });
       navigate("/company/dashboard");
-    }, 800);
+    } catch (error: any) {
+      toast({
+        title: "Login Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

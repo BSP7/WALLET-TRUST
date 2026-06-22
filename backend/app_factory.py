@@ -117,13 +117,14 @@ def create_app():
     configure_error_handlers(app)
     
     # Register blueprints (modular routes)
-    from api.routes import health_bp, auth_bp, users_bp, documents_bp, blockchain_bp
+    from api.routes import health_bp, auth_bp, users_bp, documents_bp, blockchain_bp, company_bp
     
     app.register_blueprint(health_bp)
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(documents_bp, url_prefix='/api/documents')
     app.register_blueprint(blockchain_bp, url_prefix='/api/blockchain')
+    app.register_blueprint(company_bp, url_prefix='/api/company')
     
     logger.info("Flask application initialized successfully")
     
